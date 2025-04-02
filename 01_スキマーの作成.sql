@@ -2,6 +2,17 @@
 --
 --   サンプルスキーマの作成
 --  
+--    
+--   このSQLスクリプトは、SQLリファクタリング手法を紹介するための基盤となるサンプルスキーマを作成します。 
+--   このスクリプトを基に、以降のスクリプトでSQLリファクタリング手法を紹介していきます。 
+-- 
+--   主な処理内容：
+--   　- `SqlRefactoring` データベース（プロジェクト管理システム向け）を作成（存在しない場合）
+--   　- 既存のテーブルやストアドプロシージャがある場合、削除（クリーンアップ）
+--   　- テーブル作成（user、project、task、teamなど）
+--   　- インデックスの作成
+--   　- サンプルデータの挿入
+--     
 -----------------------------------------------------------------------------------
 
 IF NOT EXISTS(SELECT * FROM sys.databases WHERE name = 'SqlRefactoring')
@@ -67,6 +78,8 @@ CREATE TABLE team_membership_role (
 );
 GO
 
+
+-- 通常テーブルの作成
 CREATE TABLE [user] (
 	user_id            INT IDENTITY(1,1) PRIMARY KEY,
 	first_name         NVARCHAR(50) NOT NULL,
@@ -156,7 +169,7 @@ CREATE INDEX idx_team_name ON team (team_name);
 CREATE INDEX idx_team_membership_team_user ON team_membership (team_id, user_id);
 
 
--- サンプルデータ挿入
+-- サンプルデータの挿入
 INSERT INTO team_membership_role (role_name) VALUES 
 ('Team Member'),
 ('Team Lead'),
@@ -174,7 +187,6 @@ INSERT INTO task_status (status_name) VALUES
 ('Delayed'),
 ('Completed'),
 ('Cancelled');
-
 
 INSERT INTO task_priority (priority_name) VALUES 
 ('Low'),
