@@ -94,8 +94,8 @@ GO
 --------------------------------
 -- リファクタリングの効果
 --------------------------------
--- BEFORE: 'team_membership':  logical reads 2
--- AFTER:  'team_membership':  logical reads 0
+-- BEFORE: 'team_membership':  論理読み取り数 2
+-- AFTER:  'team_membership':  論理読み取り数 0
 -- 今回の効果が大きくなかったが、不要なテーブルを削除するこでクエリの実行時間が１０倍、１００倍早くなるケースを見たことある。
 
 
@@ -176,9 +176,9 @@ GO
 -- リファクタリングの効果
 --------------------------------
 -- BEFORE: 
---        'task_dependency': Scan count 5000, logical reads 10646,
+--        'task_dependency': 論理読み取り数 10646,
 --         CPU time = 16 ms
 -- 
 -- AFTER: 
---　　　   'task_dependency': Scan count 1, logical reads 31
+--　　　   'task_dependency': 論理読み取り数 31
 --         CPU time = 0 ms
