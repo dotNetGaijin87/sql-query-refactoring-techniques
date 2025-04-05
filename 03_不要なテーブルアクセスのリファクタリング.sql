@@ -2,9 +2,9 @@
 --
 --   不要なテーブルアクセスのリファクタリング
 --       
---		手法＃１：ウィンドウ関数による無駄なテーブルアクセス削減
---		手法＃２：一時テーブルによる重複スキャン削減
---		手法＃３：CASE式による一括更新
+--        手法＃１：ウィンドウ関数による無駄なテーブルアクセス削減
+--        手法＃２：一時テーブルによる重複スキャン削減
+--        手法＃３：CASE式による一括更新
 -- 
 -----------------------------------------------------------------------------------
 USE SqlRefactoring;
@@ -122,15 +122,15 @@ WITH FilteredTasks AS (
         tp.priority_name,
         COALESCE(tc.comment_count, 0) AS comment_count
     FROM task t
-	LEFT JOIN project p ON t.project_id = p.project_id
-	LEFT JOIN project_status ps ON p.status_id = ps.status_id
-	LEFT JOIN task_priority tp ON t.priority_id = tp.priority_id
-	LEFT JOIN (
-		SELECT task_id, 
-				COUNT(*) AS comment_count
-		FROM task_comment
-		GROUP BY task_id
-	) tc ON t.task_id = tc.task_id
+    LEFT JOIN project p ON t.project_id = p.project_id
+    LEFT JOIN project_status ps ON p.status_id = ps.status_id
+    LEFT JOIN task_priority tp ON t.priority_id = tp.priority_id
+    LEFT JOIN (
+        SELECT task_id, 
+                COUNT(*) AS comment_count
+        FROM task_comment
+        GROUP BY task_id
+    ) tc ON t.task_id = tc.task_id
     WHERE p.status_id = (SELECT status_id FROM project_status WHERE status_name = 'Active')
 ),
 
@@ -141,13 +141,13 @@ OverdueTasks AS (
 ),
 
 HighPriorityTasks AS (
-	SELECT ft.*, 'High Priority' AS TaskType
+    SELECT ft.*, 'High Priority' AS TaskType
     FROM FilteredTasks ft
     WHERE ft.priority_id = (SELECT priority_id FROM task_priority WHERE priority_name = 'High')
 ),
 
 TasksWithComments AS (
-	SELECT ft.*, 'Has Comment' AS TaskType
+    SELECT ft.*, 'Has Comment' AS TaskType
     FROM FilteredTasks ft
     WHERE ft.comment_count > 0
 )
@@ -166,25 +166,25 @@ ORDER BY assigned_to_user_id;
 DROP TABLE IF EXISTS #FilteredTasks;
 
 SELECT 
-	t.assigned_to_user_id, 
-	t.task_name, 
-	t.due_date, 
-	t.priority_id,
-	p.project_name,
-	ps.status_name,
-	tp.priority_name,
-	COALESCE(tc.comment_count, 0) AS comment_count
+    t.assigned_to_user_id, 
+    t.task_name, 
+    t.due_date, 
+    t.priority_id,
+    p.project_name,
+    ps.status_name,
+    tp.priority_name,
+    COALESCE(tc.comment_count, 0) AS comment_count
 INTO #FilteredTasks
 FROM task t
-	LEFT JOIN project p ON t.project_id = p.project_id
-	LEFT JOIN project_status ps ON p.status_id = ps.status_id
-	LEFT JOIN task_priority tp ON t.priority_id = tp.priority_id
-	LEFT JOIN (
-		SELECT task_id, 
-			   COUNT(*) AS comment_count
-		FROM task_comment
-		GROUP BY task_id
-	) tc ON t.task_id = tc.task_id
+    LEFT JOIN project p ON t.project_id = p.project_id
+    LEFT JOIN project_status ps ON p.status_id = ps.status_id
+    LEFT JOIN task_priority tp ON t.priority_id = tp.priority_id
+    LEFT JOIN (
+        SELECT task_id, 
+               COUNT(*) AS comment_count
+        FROM task_comment
+        GROUP BY task_id
+    ) tc ON t.task_id = tc.task_id
 WHERE p.status_id = (SELECT status_id FROM project_status WHERE status_name = 'Active');
 
 
@@ -218,12 +218,12 @@ DECLARE @HIGH_PRIORITY INT = (SELECT status_id FROM project_status WHERE status_
 -- BEFORE
 --------------------------------
 UPDATE project
-	SET status_id = @DELAYED_STATUS
+    SET status_id = @DELAYED_STATUS
 WHERE status_id IN (@ACTIVE_STATUS)
   AND end_date < '2025-08-30';
 
 UPDATE project
-	SET priority_id = @HIGH_PRIORITY
+    SET priority_id = @HIGH_PRIORITY
 WHERE priority_id IN (@MEDIUM_PRIORITY)
   AND budget > 100000;
 
@@ -232,15 +232,15 @@ WHERE priority_id IN (@MEDIUM_PRIORITY)
 -- AFTER
 --------------------------------
 UPDATE project
-	SET status_id = 
-		CASE 
-			WHEN status_id = @ACTIVE_STATUS AND end_date < '2025-08-30' THEN @DELAYED_STATUS
-			ELSE status_id
-		END,
-	priority_id = 
-		CASE 
-			WHEN priority_id = @MEDIUM_PRIORITY AND budget > 100000 THEN @HIGH_PRIORITY
-			ELSE priority_id
-		END
+    SET status_id = 
+        CASE 
+            WHEN status_id = @ACTIVE_STATUS AND end_date < '2025-08-30' THEN @DELAYED_STATUS
+            ELSE status_id
+        END,
+    priority_id = 
+        CASE 
+            WHEN priority_id = @MEDIUM_PRIORITY AND budget > 100000 THEN @HIGH_PRIORITY
+            ELSE priority_id
+        END
 WHERE (status_id = @ACTIVE_STATUS AND end_date < '2025-08-30')
    OR (priority_id = @MEDIUM_PRIORITY AND budget < 100000);

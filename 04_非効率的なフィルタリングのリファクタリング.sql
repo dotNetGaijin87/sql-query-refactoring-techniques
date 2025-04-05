@@ -1,9 +1,9 @@
 -----------------------------------------------------------------------------------
 --
---	非効率的なフィルタリングのリファクタリング
+--    非効率的なフィルタリングのリファクタリング
 --       
---		手法＃４：最上位クエリでのDISTINCTをサブクエリに移動
---		手法＃５：最上位クエリでのGROUP BYをサブクエリに移動
+--        手法＃４：最上位クエリでのDISTINCTをサブクエリに移動
+--        手法＃５：最上位クエリでのGROUP BYをサブクエリに移動
 -- 
 -----------------------------------------------------------------------------------
 USE SqlRefactoring;
@@ -19,9 +19,9 @@ SET STATISTICS IO ON;
 -- BEFORE
 --------------------------------
 SELECT DISTINCT 
-	   u.user_id, 
-	   u.first_name, 
-	   u.last_name
+       u.user_id, 
+       u.first_name, 
+       u.last_name
 FROM [user] u
 JOIN task t ON u.user_id = t.assigned_to_user_id
 JOIN project p ON t.project_id = p.project_id
@@ -36,18 +36,18 @@ ORDER BY user_id;
 -- AFTER
 --------------------------------
 SELECT 
-	u.user_id, 
-	u.first_name, 
-	u.last_name
+    u.user_id, 
+    u.first_name, 
+    u.last_name
 FROM [user] u
 JOIN team_membership tm ON u.user_id = tm.user_id
 JOIN team tteam ON tm.team_id = tteam.team_id
 JOIN (
-	SELECT DISTINCT t.assigned_to_user_id
-	FROM task t
-	JOIN project p ON t.project_id = p.project_id
-	JOIN project_status ps ON p.status_id = ps.status_id
-	WHERE ps.status_name = 'Active'
+    SELECT DISTINCT t.assigned_to_user_id
+    FROM task t
+    JOIN project p ON t.project_id = p.project_id
+    JOIN project_status ps ON p.status_id = ps.status_id
+    WHERE ps.status_name = 'Active'
 ) AS active_tasks ON u.user_id = active_tasks.assigned_to_user_id
 WHERE tteam.team_name = 'Team_3'
 ORDER BY user_id;

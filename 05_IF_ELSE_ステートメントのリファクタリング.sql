@@ -1,11 +1,11 @@
 -----------------------------------------------------------------------------------
 --
---	IF ELSE ステートメントのリファクタリング
+--    IF ELSE ステートメントのリファクタリング
 --       
---		手法＃６：複数IF-ELSEをCASE式で解決
---		手法＃７：防御IFをなくす
---		手法＃８：IF ... IS NULLをISNULL関数で解決
---		手法＃９：優先順位UPDATEをCASE式で解決
+--        手法＃６：複数IF-ELSEをCASE式で解決
+--        手法＃７：防御IFをなくす
+--        手法＃８：IF ... IS NULLをISNULL関数で解決
+--        手法＃９：優先順位UPDATEをCASE式で解決
 --  
 -----------------------------------------------------------------------------------
 USE SqlRefactoring;
@@ -47,7 +47,7 @@ BEGIN
         SET @status_id = 2; -- 順調
 
     UPDATE task
-		SET status_id = @status_id
+        SET status_id = @status_id
     WHERE task_id = @task_id;
 
     FETCH NEXT FROM cur_tasks INTO @task_id, @due_date;
@@ -64,13 +64,13 @@ GO
 DECLARE @current_date DATE = '2025-06-30'; -- 一貫性のため固定日付を使用
 
 UPDATE task
-	SET status_id = 
-		CASE 
-			WHEN due_date < @current_date THEN 4 -- 遅延
-			WHEN due_date < DATEADD(DAY, -1, @current_date) THEN 3 -- 遅延のリスクあり
-			ELSE 2 -- 順調
-		END
-	WHERE status_id IN (2, 3, 4);
+    SET status_id = 
+        CASE 
+            WHEN due_date < @current_date THEN 4 -- 遅延
+            WHEN due_date < DATEADD(DAY, -1, @current_date) THEN 3 -- 遅延のリスクあり
+            ELSE 2 -- 順調
+        END
+    WHERE status_id IN (2, 3, 4);
 GO
 
 
@@ -92,11 +92,11 @@ FROM task
 WHERE task_id = @task_id;
 
 IF @existing_user_id <> @new_user_id
-	BEGIN
-		UPDATE task
-			SET assigned_to_user_id = @new_user_id
-		WHERE task_id = @task_id;
-	END;
+    BEGIN
+        UPDATE task
+            SET assigned_to_user_id = @new_user_id
+        WHERE task_id = @task_id;
+    END;
 
 GO
 
@@ -107,20 +107,20 @@ DECLARE @task_id INT = 1;
 DECLARE @new_user_id INT = 5;
 
 UPDATE task
-	SET assigned_to_user_id = @new_user_id
+    SET assigned_to_user_id = @new_user_id
 WHERE task_id = @task_id
   AND assigned_to_user_id <> @new_user_id;
 
 
 IF @@ROWCOUNT = 0
-	BEGIN
-	    PRINT 'タスクはすでに指定されたユーザーに割り当てられています';
-	END
+    BEGIN
+        PRINT 'タスクはすでに指定されたユーザーに割り当てられています';
+    END
 ELSE
-	BEGIN
-		PRINT 'タスク番号: ' + CAST(@task_id AS NVARCHAR(20));
-		PRINT '割り当てユーザー ID: ' + CAST(@new_user_id AS NVARCHAR(20));
-	END
+    BEGIN
+        PRINT 'タスク番号: ' + CAST(@task_id AS NVARCHAR(20));
+        PRINT '割り当てユーザー ID: ' + CAST(@new_user_id AS NVARCHAR(20));
+    END
 GO
 
 
@@ -218,68 +218,68 @@ AS
 BEGIN
     SET NOCOUNT ON;
 
-	-- クリティカル優先度のタスクをチェック
-	SELECT TOP 1 @assigned_task_id = task_id
-	FROM task
-	WHERE priority_id = (SELECT priority_id FROM task_priority WHERE priority_name = 'Critical')
-	  AND assigned_to_user_id IS NULL
-	ORDER BY task_id;
+    -- クリティカル優先度のタスクをチェック
+    SELECT TOP 1 @assigned_task_id = task_id
+    FROM task
+    WHERE priority_id = (SELECT priority_id FROM task_priority WHERE priority_name = 'Critical')
+      AND assigned_to_user_id IS NULL
+    ORDER BY task_id;
 
-	IF @assigned_task_id IS NOT NULL
-	BEGIN
-		UPDATE task
-			SET assigned_to_user_id = @user_id
-		WHERE task_id = @assigned_task_id;
+    IF @assigned_task_id IS NOT NULL
+    BEGIN
+        UPDATE task
+            SET assigned_to_user_id = @user_id
+        WHERE task_id = @assigned_task_id;
 
-		RETURN;
-	END
+        RETURN;
+    END
 
-	-- 高優先度のタスクをチェック
-	SELECT TOP 1 @assigned_task_id = task_id
-	FROM task
-	WHERE priority_id = (SELECT priority_id FROM task_priority WHERE priority_name = 'High')
-	  AND assigned_to_user_id IS NULL
-	ORDER BY task_id;
+    -- 高優先度のタスクをチェック
+    SELECT TOP 1 @assigned_task_id = task_id
+    FROM task
+    WHERE priority_id = (SELECT priority_id FROM task_priority WHERE priority_name = 'High')
+      AND assigned_to_user_id IS NULL
+    ORDER BY task_id;
 
-	IF @assigned_task_id IS NOT NULL
-	BEGIN
-		UPDATE task
-			SET assigned_to_user_id = @user_id
-		WHERE task_id = @assigned_task_id;
+    IF @assigned_task_id IS NOT NULL
+    BEGIN
+        UPDATE task
+            SET assigned_to_user_id = @user_id
+        WHERE task_id = @assigned_task_id;
 
-		RETURN;
-	END
+        RETURN;
+    END
 
-	-- 中優先度のタスクをチェック
-	SELECT TOP 1 @assigned_task_id = task_id
-	FROM task
-	WHERE priority_id = (SELECT priority_id FROM task_priority WHERE priority_name = 'Medium')
-	  AND assigned_to_user_id IS NULL
-	ORDER BY task_id;
+    -- 中優先度のタスクをチェック
+    SELECT TOP 1 @assigned_task_id = task_id
+    FROM task
+    WHERE priority_id = (SELECT priority_id FROM task_priority WHERE priority_name = 'Medium')
+      AND assigned_to_user_id IS NULL
+    ORDER BY task_id;
 
-	IF @assigned_task_id IS NOT NULL
-	BEGIN
-		UPDATE task
-			SET assigned_to_user_id = @user_id
-		WHERE task_id = @assigned_task_id;
+    IF @assigned_task_id IS NOT NULL
+    BEGIN
+        UPDATE task
+            SET assigned_to_user_id = @user_id
+        WHERE task_id = @assigned_task_id;
 
-		RETURN;
-	END
+        RETURN;
+    END
 
-	-- 任意のタスク（低優先度の場合）
-	SELECT TOP 1 @assigned_task_id = task_id
-	FROM task
-	WHERE assigned_to_user_id IS NULL
-	ORDER BY task_id;
+    -- 任意のタスク（低優先度の場合）
+    SELECT TOP 1 @assigned_task_id = task_id
+    FROM task
+    WHERE assigned_to_user_id IS NULL
+    ORDER BY task_id;
 
-	IF @assigned_task_id IS NOT NULL
-	BEGIN
-		UPDATE task
-			SET assigned_to_user_id = @user_id
-		WHERE task_id = @assigned_task_id;
+    IF @assigned_task_id IS NOT NULL
+    BEGIN
+        UPDATE task
+            SET assigned_to_user_id = @user_id
+        WHERE task_id = @assigned_task_id;
 
-		RETURN;
-	END
+        RETURN;
+    END
 
 END;
 
@@ -301,13 +301,13 @@ BEGIN
 
     -- 最も優先度が高い利用可能なタスクを割り当て
     UPDATE t
-		SET t.assigned_to_user_id = @user_id
+        SET t.assigned_to_user_id = @user_id
     OUTPUT INSERTED.task_id INTO @AssignedTask
     FROM task t
     WHERE t.task_id = (
         SELECT TOP 1 t2.task_id
         FROM task t2
-			INNER JOIN task_priority tp2 ON t2.priority_id = tp2.priority_id
+            INNER JOIN task_priority tp2 ON t2.priority_id = tp2.priority_id
         WHERE t2.assigned_to_user_id IS NULL
         ORDER BY 
             CASE tp2.priority_name
