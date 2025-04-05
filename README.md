@@ -92,7 +92,7 @@ BEGIN
         SET @status_id = 2; -- 順調
 
     UPDATE task
-		SET status_id = @status_id
+        SET status_id = @status_id
     WHERE task_id = @task_id;
 
     FETCH NEXT FROM cur_tasks INTO @task_id, @due_date;
@@ -109,12 +109,12 @@ GO
 DECLARE @current_date DATE = '2025-06-30'; -- 一貫性のため固定日付を使用
 
 UPDATE task
-	SET status_id =
-		CASE
-			WHEN due_date < @current_date THEN 4 -- 遅延
-			WHEN due_date < DATEADD(DAY, -1, @current_date) THEN 3 -- 遅延のリスクあり
-			ELSE 2 -- 順調
-		END
-	WHERE status_id IN (2, 3, 4);
+    SET status_id =
+        CASE
+            WHEN due_date < @current_date THEN 4 -- 遅延
+            WHEN due_date < DATEADD(DAY, -1, @current_date) THEN 3 -- 遅延のリスクあり
+            ELSE 2 -- 順調
+        END
+    WHERE status_id IN (2, 3, 4);
 GO
 ```
