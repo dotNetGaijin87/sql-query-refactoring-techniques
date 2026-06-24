@@ -1,186 +1,117 @@
 # SQL クエリリファクタリング手法
 
-このリポジトリでは、SQL クエリのパフォーマンスと可読性を向上させるためのリファクタリング手法を、
-**ビフォー／アフター**と**論理読み取り数による定量比較**を通して紹介します。
-対象 DBMS は **Microsoft SQL Server**（T-SQL）です。
+SQL Server（T-SQL）のクエリを **BEFORE / AFTER** で書き換え、**実行プラン**と **論理読み取り数**で
+「なぜ速くなるのか」を可視化するリポジトリです。
 
-## 目次
+## 手法一覧
 
-- [内容](#内容)
-- [動作環境](#動作環境)
-- [使い方](#使い方)
-- [取り扱っている手法の一覧](#取り扱っている手法の一覧)
-- [ケーススタディ（スクリプト 07）の段階別サマリー](#ケーススタディスクリプト-07の段階別サマリー)
-- [リファクタリング前に理解すべき基礎知識](#リファクタリング前に理解すべき基礎知識)
-- [リファクタリング後のクエリ性能をどうやって評価するか](#リファクタリング後のクエリ性能をどうやって評価するか)
-- [手法の例](#手法の例)
-- [ライセンス](#ライセンス)
+| #   | 手法                                               | 場所                                                        |
+| :-- | :------------------------------------------------- | :---------------------------------------------------------- |
+| 1   | ウィンドウ関数で無駄なテーブルアクセスを削減       | [03](03_不要なテーブルアクセスのリファクタリング.sql#L16)   |
+| 2   | 一時テーブルで重複スキャンを削減                   | [03](03_不要なテーブルアクセスのリファクタリング.sql#L107)  |
+| 3   | CASE 式で一括更新                                  | [03](03_不要なテーブルアクセスのリファクタリング.sql#L207)  |
+| 4   | 最上位の DISTINCT をサブクエリへ                   | [04](04_非効率的なフィルタリングのリファクタリング.sql#L15) |
+| 5   | 最上位の GROUP BY をサブクエリへ                   | [04](04_非効率的なフィルタリングのリファクタリング.sql#L57) |
+| 6   | 複数 IF-ELSE を CASE 式に（カーソル → 集合ベース） | [05](05_IF_ELSE_ステートメントのリファクタリング.sql#L18)   |
+| 7   | 防御 IF をなくす                                   | [05](05_IF_ELSE_ステートメントのリファクタリング.sql#L79)   |
+| 8   | `IF ... IS NULL` を `ISNULL` に                    | [05](05_IF_ELSE_ステートメントのリファクタリング.sql#L128)  |
+| 9   | 優先順位 UPDATE を CASE 式に                       | [05](05_IF_ELSE_ステートメントのリファクタリング.sql#L208)  |
+| 10  | 複数サブクエリを GROUP BY + CASE に                | [06](06_非効率的な集約のリファクタリング.sql#L16)           |
+| 11  | 自己結合をウィンドウ関数に                         | [06](06_非効率的な集約のリファクタリング.sql#L53)           |
 
-## 動作環境
+## ハイライト：手法＃11（自己結合 → ウィンドウ関数）
 
-- Microsoft SQL Server 2019 以降（一部の補足例は SQL Server 2022 の `GENERATE_SERIES` を使用）
-- SQL Server Management Studio (SSMS) または Azure Data Studio などの実行環境
+相関サブクエリの自己結合が `task_comment`（20 万行）を繰り返しスキャンするため論理読み取りは **1,535,494**。
+`LAG()` / `ROW_NUMBER()` に置き換えると **1,714** まで激減します（**約 900 分の 1**、CPU 2,130 → 395 ms）。
+
+<table>
+<thead>
+<tr>
+<th width="50%">🐢 BEFORE — 相関サブクエリによる自己結合</th>
+<th width="50%">🚀 AFTER — ウィンドウ関数（LAG / ROW_NUMBER）</th>
+</tr>
+</thead>
+<tbody>
+
+<tr><td colspan="2" align="center"><b>① SQL コード</b></td></tr>
+<tr>
+<td>
+
+```sql
+-- 行ごとに相関サブクエリが task_comment を読み直す
+SELECT t.task_id, ts.status_name, tc.created_at AS status_changed_at,
+    DATEDIFF(MINUTE,
+        (SELECT MAX(tc2.created_at) FROM task_comment tc2
+         WHERE tc2.task_id = t.task_id
+           AND (tc2.created_at < tc.created_at
+                OR (tc2.created_at = tc.created_at
+                    AND tc2.comment_id < tc.comment_id))),
+        tc.created_at) AS time_in_previous_status,
+    (SELECT COUNT(*) FROM task_comment tc2
+     WHERE tc2.task_id = t.task_id
+       AND (tc2.created_at < tc.created_at
+            OR (tc2.created_at = tc.created_at
+                AND tc2.comment_id <= tc.comment_id))) AS status_change_order
+FROM task t
+JOIN task_status ts ON t.status_id = ts.status_id
+JOIN task_comment tc ON t.task_id = tc.task_id
+WHERE ts.status_name IN ('On Track', 'Delayed')
+ORDER BY t.task_id, tc.created_at, tc.comment_id;
+```
+
+</td>
+<td>
+
+```sql
+-- task_comment は 1 回のスキャンで、計算はパーティション内で完結
+SELECT t.task_id, ts.status_name, tc.created_at AS status_changed_at,
+    DATEDIFF(MINUTE,
+        LAG(tc.created_at) OVER (
+            PARTITION BY t.task_id ORDER BY tc.created_at),
+        tc.created_at) AS time_in_previous_status,
+    ROW_NUMBER() OVER (
+        PARTITION BY t.task_id ORDER BY tc.created_at) AS status_change_order
+FROM task t
+JOIN task_status ts ON t.status_id = ts.status_id
+JOIN task_comment tc ON t.task_id = tc.task_id
+WHERE ts.status_name IN ('On Track', 'Delayed')
+ORDER BY t.task_id, tc.created_at, tc.comment_id;
+```
+
+</td>
+</tr>
+
+<tr><td colspan="2" align="center"><b>② 実行プラン（Execution plan）</b><br><sub>SQL Server がクエリを内部でどう処理するかを示す図。データは右 → 左に流れる（クリックで拡大）</sub></td></tr>
+<tr>
+<td><a href="docs/execution-plans/img/t11_before.png"><img src="docs/execution-plans/img/t11_before.png" width="100%" alt="BEFORE の実行プラン（クリックで拡大）"></a></td>
+<td><a href="docs/execution-plans/img/t11_after.png"><img src="docs/execution-plans/img/t11_after.png" width="100%" alt="AFTER の実行プラン（クリックで拡大）"></a></td>
+</tr>
+
+<tr><td colspan="2" align="center"><b>③ 計測値（論理読み取り ／ CPU ／ 実行時間）</b></td></tr>
+<tr>
+<td align="center">論理読み取り <b>1,535,494</b> ／ CPU 2,130 ms ／ 1.10 s</td>
+<td align="center">論理読み取り <b>1,714</b> ／ CPU 395 ms ／ 0.11 s</td>
+</tr>
+
+</tbody>
+</table>
+
+> **実行プランの図の見方**：各ボックスは「物理演算子／対象オブジェクト／推定行数・コスト%」。
+> 青＝スキャン、オレンジ＝結合、赤＝ソート、紫＝スプール。データの流れは右 → 左。
+> 図は **推定実行プラン**（`SET SHOWPLAN_XML`）。
 
 ## 使い方
 
-1. スクリプトは番号順に実行することを想定しています。まず `01_スキーマの作成.sql` を実行して、
-   サンプルデータベース `SqlRefactoring` とデータを作成します。
-2. 続いて `02` 以降のスクリプトを順に開き、各手法のビフォー／アフターを実行して比較します。
-3. パフォーマンスを比較する際は、計測前に `SET STATISTICS IO, TIME ON;` を有効にし、
-   主に **論理読み取り数** の増減で評価します（詳細は後述）。
+1. `01_スキーマの作成.sql` を実行してサンプル DB `SqlRefactoring` を作成。
+2. `02` 以降を番号順に開き、BEFORE / AFTER を実行して比較。
+3. `SET STATISTICS IO, TIME ON;` を有効にし、主に **論理読み取り数** で評価。
 
-```sql
--- 例: 論理読み取り数と実行時間を計測する
-SET STATISTICS IO, TIME ON;
--- ここで比較したいクエリを実行
-SET STATISTICS IO, TIME OFF;
-```
+## もっと見る
 
-## 内容
+- 全手法の **BEFORE / AFTER 実行プラン**＋計測値 → **[docs/execution-plans/](docs/execution-plans/)**
+- 複雑なクエリを段階的に書き換える **ケーススタディ（v1 → v6）** → [07\_複雑なクエリのリファクタリング.sql](07_複雑なクエリのリファクタリング.sql)
 
-スクリプト 01 は、サンプルデータベーススキーマの作成とデータ挿入するスクリプトです。</br>
-このサンプルデータベースは後続のスクリプトで使用される。</br>
-スクリプト 02 では、クエリ内のテーブルの役割を特定する方法を解説します。</br>
-スクリプト 03 ～ 06 では、さまざまなリファクタリング手法を紹介します。</br>
-最後のスクリプト 07 は、複雑なクエリのステップごとのリファクタリングを扱うケーススタディです。</br>
+## 動作環境・ライセンス
 
-## 取り扱っている手法の一覧
-
-各手法は、以下のスクリプトの該当箇所で実演しています（リンクをクリックすると該当行に移動します）。
-
-- 手法＃１：ウィンドウ関数による無駄なテーブルアクセス削減 — [03:16](03_不要なテーブルアクセスのリファクタリング.sql#L16)
-- 手法＃２：一時テーブルによる重複スキャン削減 — [03:107](03_不要なテーブルアクセスのリファクタリング.sql#L107)
-- 手法＃３：CASE 式による一括更新 — [03:207](03_不要なテーブルアクセスのリファクタリング.sql#L207)
-- 手法＃４：最上位クエリでの DISTINCT をサブクエリに移動 — [04:15](04_非効率的なフィルタリングのリファクタリング.sql#L15)
-- 手法＃５：最上位クエリでの GROUP BY をサブクエリに移動 — [04:57](04_非効率的なフィルタリングのリファクタリング.sql#L57)
-- 手法＃６：複数 IF-ELSE を CASE 式で解決 — [05:18](05_IF_ELSE_ステートメントのリファクタリング.sql#L18)
-- 手法＃７：防御 IF をなくす — [05:79](05_IF_ELSE_ステートメントのリファクタリング.sql#L79)
-- 手法＃８：IF ... IS NULL を ISNULL 関数で解決 — [05:128](05_IF_ELSE_ステートメントのリファクタリング.sql#L128)
-- 手法＃９：優先順位 UPDATE を CASE 式で解決 — [05:208](05_IF_ELSE_ステートメントのリファクタリング.sql#L208)
-- 手法＃１０：SELECT 文の複数サブクエリを GROUP BY と CASE 式に置換 — [06:16](06_非効率的な集約のリファクタリング.sql#L16)
-- 手法＃１１：SELECT 文の自己結合をウィンドウ関数に置換 — [06:53](06_非効率的な集約のリファクタリング.sql#L53)
-
-ケーススタディ（[07_複雑なクエリのリファクタリング.sql](07_複雑なクエリのリファクタリング.sql)）では、上記を組み合わせて
-ループ＋一時テーブルのストアドプロシージャを段階的に書き換えるほか、次の補足トピックも扱います。
-
-- 日付連番の生成（ハードコードの `VALUES` → `GENERATE_SERIES` / 数値表）
-- 同数（タイ）時に結果を一意にする決定的なタイブレーク
-- カバリングインデックスによる論理読み取りの削減
-- 計測方法の注意点（ウォームアップ実行、`SET STATISTICS IO, TIME`、`SYSDATETIME()` による高精度計測）
-
-## ケーススタディ（スクリプト 07）の段階別サマリー
-
-月次タスクサマリーレポートのストアドプロシージャを、`v1` から `v6` へ段階的にリファクタリングしていきます。
-各段階で「何を」「なぜ」変えたのかを以下にまとめます。論理読み取り数・実行時間は環境やデータ量で変わるため、
-ご自身の環境で `SET STATISTICS IO, TIME ON;` を有効にして計測し、表に記入してください。
-
-| バージョン | リファクタリング内容 | ねらい | 論理読み取り数 | 実行時間 |
-| :--- | :--- | :--- | :--- | :--- |
-| v1 | 初期クエリ（WHILE ループ＋一時テーブル＋カーソル的処理） | ベースライン | （要計測） | （要計測） |
-| v2 | ループと一時テーブルを排除し、集合ベースの 1 クエリ化 | 手続き型 → 宣言型 | （要計測） | （要計測） |
-| v3 | SELECT 句のサブクエリを FROM 句へ移動 | 行ごとの相関サブクエリ実行を排除 | （要計測） | （要計測） |
-| v4 | CTE とウィンドウ関数で簡素化 | 可読性向上・重複ロジック削減 | （要計測） | （要計測） |
-| v5 | ユーザー集計を前処理してアクセスを改善 | `[user]` テーブルアクセスの削減 | （要計測） | （要計測） |
-| v6 | CTE を統合し `task` テーブルのスキャンを 1 回に削減 | スキャン回数の最小化 | （要計測） | （要計測） |
-
-> スクリプト末尾には、全バージョンが**同一の結果を返すか**を検証するクエリと、
-> **カバリングインデックス**による追加改善の例も含まれています。
-
-## リファクタリング前に理解すべき基礎知識
-
-SQL は宣言型言語であるため、我々が書いたクエリは「どのデータが欲しいのか」をデータベースエンジンに伝えるヒントに過ぎない。
-しかし、そのクエリをどのように実行するかはデータベース側の判断次第である。
-例えば、サブクエリ内で 2 つのテーブルを JOIN しても、データベースエンジンが「それは効率的ではない」と判断すれば、クエリ全体を別の形に書き換えて実行することもあります。
-とはいえ、クエリはできるだけシンプルに書くべきです。なぜなら、データベースは限られた時間の中で最適な実行計画を見つけ、クエリを実行しなければならないからです。
-クエリが複雑すぎたり、間違った書き方をすると、パフォーマンスに悪影響を与えてしまう。
-そのため、サブクエリ・ウィンドウ関数・CTE などの手法を活用すれば、クエリ実行というデータベースの仕事が楽になる。
-
-## リファクタリング後のクエリ性能をどうやって評価するか
-
-リファクタリングした後、その変更が本当にパフォーマンス改善につながったのかを確認することは非常に重要である。</br>
-そのためには、定量的な性能指標を使って比較する必要がある。
-
-SQL Server では評価するため様々の方法があるがもっとも一般的なのは STATISTICS IO, TIME である。
-
-```SQL
-SET STATISTICS IO, TIME ON;
-```
-
-上記を設定して、クエリを実行すれば以下の情報を取得できる：
-
-- 経過時間：実行完了までにかかった時間
-- CPU 時間：CPU が実際に処理に使われた時間
-- 論理読み取り数：キャッシュから読み取られたページ数
-- 物理読み取り数：ディスクから直接読み取られたページ数
-- TempDB 使用量：一時領域の利用状況</br>
-  ※ページは 8KB の論理単位で構成されている。
-
-ここでは主に「論理読み取り数」を使って評価する。
-リファクタリング後、論理読み取り数が下がればパフォーマンスが上がったと分かる。
-
-## 手法の例
-
-```SQL
---================================================================================
---  手法＃６：複数IF-ELSEをCASE式で解決
---================================================================================
-
---------------------------------
--- BEFORE
---------------------------------
-DECLARE @task_id INT;
-DECLARE @due_date DATE;
-DECLARE @status_id INT;
-DECLARE @current_date DATE = '2025-06-30'; -- 一貫性のため固定日付を使用
-
-DECLARE cur_tasks CURSOR FOR
-SELECT task_id, due_date
-FROM task
-WHERE status_id IN (2, 3, 4);
-
-OPEN cur_tasks;
-
-FETCH NEXT FROM cur_tasks INTO @task_id, @due_date;
-
-WHILE @@FETCH_STATUS = 0
-BEGIN
-    SET NOCOUNT ON;
-
-    IF @due_date < @current_date
-        SET @status_id = 4; -- 遅延
-    ELSE IF @due_date < DATEADD(DAY, -1, @current_date)
-        SET @status_id = 3; -- 遅延のリスクあり
-    ELSE
-        SET @status_id = 2; -- 順調
-
-    UPDATE task
-        SET status_id = @status_id
-    WHERE task_id = @task_id;
-
-    FETCH NEXT FROM cur_tasks INTO @task_id, @due_date;
-END;
-
-CLOSE cur_tasks;
-DEALLOCATE cur_tasks;
-GO
-
-
---------------------------------
--- AFTER
---------------------------------
-DECLARE @current_date DATE = '2025-06-30'; -- 一貫性のため固定日付を使用
-
-UPDATE task
-    SET status_id =
-        CASE
-            WHEN due_date < @current_date THEN 4 -- 遅延
-            WHEN due_date < DATEADD(DAY, -1, @current_date) THEN 3 -- 遅延のリスクあり
-            ELSE 2 -- 順調
-        END
-    WHERE status_id IN (2, 3, 4);
-GO
-```
-
-## ライセンス
-
-このプロジェクトは [MIT License](LICENSE) の下で公開されています。
+- Microsoft SQL Server 2019 以降（補足例で 2022 の `GENERATE_SERIES` を使用）／ SSMS または Azure Data Studio
+- [MIT License](LICENSE)
