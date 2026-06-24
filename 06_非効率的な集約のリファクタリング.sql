@@ -94,4 +94,5 @@ SELECT
 FROM task t
 JOIN task_status ts ON t.status_id = ts.status_id
 JOIN task_comment tc ON t.task_id = tc.task_id
-WHERE ts.status_name IN ('On Track', 'Delayed');
+WHERE ts.status_name IN ('On Track', 'Delayed')
+ORDER BY t.task_id, tc.created_at, tc.comment_id;
